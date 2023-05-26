@@ -1,7 +1,4 @@
-/*********
-  Rui Santos
-  Complete project details at https://randomnerdtutorials.com  
-*********/
+
 
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
@@ -11,20 +8,29 @@
 #include "timer.h"
 #include <ArduinoOTA.h>
 #include "arduino_secrets.h" 
+#include <ESP8266WebServer.h>
+
+ESP8266WebServer server(80);
+
+void handleRoot() {
+  Serial.println("serve /");
+  server.send(200, "text/plain", "hello from Huhnertuer!");
+}
 
 // Replace the next variables with your SSID/Password combination
 String ssid = SECRET_SSID;
 String password = SECRET_PASS;
 
 
-const int pwmMotorA = D1;
-const int pwmMotorB = D2;
-const int dirMotorA = D3;
-const int dirMotorB = D4;
+const int pwmMotorA = 5; //D1;
+//const int pwmMotorB = D2;
+const int dirMotorA = 0; //D3;
+//const int dirMotorB = D4;
 
-int motorSpeed = 500;
+int motorSpeed = 255;
 
 Timer timer;
+Timer pingTimer;
 
 String mqtt_server = MQTT_SERVER_IP;
 
@@ -38,35 +44,51 @@ void setup() {
   client.setCallback(callback);
 
   pinMode(pwmMotorA , OUTPUT);
-  pinMode(pwmMotorB, OUTPUT);
+//  pinMode(pwmMotorB, OUTPUT);
   pinMode(dirMotorA, OUTPUT);
-  pinMode(dirMotorB, OUTPUT);
+//  pinMode(dirMotorB, OUTPUT);
 
   timer.setCallback(motorStopp);
-
+  pingTimer.setCallback(pingMQTT);
+  pingTimer.setInterval(60*1000); 
+  pingTimer.start();
   ArduinoOTA.setHostname("huhntuer");
   ArduinoOTA.begin();
+  server.on("/", handleRoot);
+  server.begin();
+  client.publish("huhnerstall/status", "started");
 }
 
 void motorAuf()
 {
   Serial.println("Activate A auf");
-  digitalWrite(pwmMotorA, motorSpeed);
+  client.publish("huhnerstall/status", "motor auf");
+  //digitalWrite(pwmMotorA, motorSpeed);
+  analogWrite(pwmMotorA,motorSpeed);
   digitalWrite(dirMotorA, LOW);
 }
 
 void motorZu()
 {
   Serial.println("Activate A zu");
-  digitalWrite(pwmMotorA, motorSpeed);
+  client.publish("huhnerstall/status", "motor zu");
+//  digitalWrite(pwmMotorA, motorSpeed);
+  analogWrite(pwmMotorA,motorSpeed);
   digitalWrite(dirMotorA, HIGH);
 }
 
 void motorStopp()
 {
   Serial.println("Motor aus");
+  client.publish("huhnerstall/status", "motor aus");
   digitalWrite(pwmMotorA, 0);
   digitalWrite(dirMotorA, LOW);
+}
+
+void pingMQTT() 
+{
+  Serial.println("Ping...");
+  client.publish("huhnerstall/ping", "id=1");
 }
 
 void setup_wifi() {
@@ -101,7 +123,7 @@ void callback(char* topic, byte* message, unsigned int length) {
   }
   Serial.println();
 
-  if (String(topic).startsWith("huhnerstall") ) {
+  if (String(topic).startsWith("huhnerstall/cmd") ) {
     Serial.print("Changing output to ");
     if(messageTemp.substring(0,7)== "tuerauf"){
       Serial.println("on");
@@ -137,8 +159,7 @@ void reconnect() {
     if (client.connect("ESP8266ClientHuhn")) {
       Serial.println("connected");
       // Subscribe
-      client.subscribe("huhnerstall/5576162");
-      client.subscribe("huhnerstall");
+      client.subscribe("huhnerstall/cmd");
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -154,6 +175,7 @@ void loop() {
   }
   client.loop();
   timer.update();
+  pingTimer.update();
   ArduinoOTA.handle();
-
+  server.handleClient();
 }
