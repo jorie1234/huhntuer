@@ -4,7 +4,7 @@
 #include <WiFiUdp.h>
 #include <Wire.h>
 #include "timer.h"
-#include <ArduinoOTA.h>
+//#include <BetterOTA.h>
 #include "arduino_secrets.h" 
 #include <ESP8266WebServer.h>
 
@@ -98,8 +98,9 @@ void setup() {
   pingTimer.setCallback(pingMQTT);
   pingTimer.setInterval(60*1000); 
   pingTimer.start();
-  ArduinoOTA.setHostname("huhntuer");
-  ArduinoOTA.begin();
+  //ArduinoOTA.setHostname("huhntuer");
+  //ArduinoOTA.begin();
+  //OTACodeUploader.begin(); // call this method if you want the code uploader to work
 
   server.on("/", handleRoot);
   server.begin();
@@ -157,7 +158,7 @@ void pingMQTT()
   String openDoorTimeStr = getFormattedTime(openDoorTimer);
   String closeDoorTimeStr = getFormattedTime(closeDoorTimer);
   String doorStatusText = getDoorStatus(DoorStatus);
-  String message = "id=1,doorstatus=" + doorStatusText + ",openDoorTime=" + openDoorTimeStr + ",closeDoorTime=" + closeDoorTimeStr;
+  String message = "id=1,doorstatus=" + doorStatusText + ",openDoorTime=" + openDoorTimeStr + ",closeDoorTime=" + closeDoorTimeStr + ",openDoorTimerState=" + GetTimerState(openDoorTimer) + ",closeDoorTimerState=" + GetTimerState(closeDoorTimer);
   client.publish("huhnerstall/ping", message.c_str());
 }
 
@@ -212,58 +213,62 @@ void callback(char* topic, byte* message, unsigned int length) {
       timer.stop();
       motorStopp();
       int doorTime = messageTemp.substring(7).toInt();
-      if ((doorTime > 15*1000) && (DoorStatus != DoorOpen)) {
-        openDoorTime = doorTime;
-        client.publish("huhnerstall/log", String("door opening full with " + String(doorTime) + "ms").c_str());
-        DoorStatus = DoorOpen;
-        openDoorTimer.stop();
-        motorAuf();
-        Serial.println(doorTime);
-        timer.setTimeout(doorTime);
-        timer.start();
-        //reset openDoorTime to 24h+30min
-        openDoorTimer.stop();
-        openDoorTimer.setTimeout(autoDoorCycleTime);
-        openDoorTimer.start();
-        client.publish("huhnerstall/log", String("set auto door opening in " + getFormattedTime(openDoorTimer)).c_str());
+      if (doorTime > 15*1000)  {
+        if  (DoorStatus != DoorOpen) {
+          openDoorTime = doorTime;
+          client.publish("huhnerstall/log", String("door opening full with " + String(doorTime) + "ms").c_str());
+          DoorStatus = DoorOpen;
+          openDoorTimer.stop();
+          motorAuf();
+          Serial.println(doorTime);
+          timer.setTimeout(doorTime);
+          timer.start();
+          //reset openDoorTime to 24h+30min
+          openDoorTimer.stop();
+          openDoorTimer.setTimeout(autoDoorCycleTime);
+          openDoorTimer.start();
+          client.publish("huhnerstall/log", String("set auto door opening in " + getFormattedTime(openDoorTimer) + "ms timer status " + GetTimerState(openDoorTimer)).c_str());
+          return;
+        }
+        client.publish("huhnerstall/log", String("cmd to open door for " + String(doorTime) + "ms ignored, door is already open").c_str());
         return;
       } 
-      else {
-        client.publish("huhnerstall/log", String("door opening normal with " + String(doorTime) + "ms").c_str());
-        motorAuf();
-        Serial.println(doorTime);
-        timer.setTimeout(doorTime);
-        timer.start();
-        return;
-      }
+      client.publish("huhnerstall/log", String("door opening normal with " + String(doorTime) + "ms").c_str());
+      motorAuf();
+      Serial.println(doorTime);
+      timer.setTimeout(doorTime);
+      timer.start();
+      return;
     }
     else if(messageTemp.substring(0,6)== "tuerzu"){
       Serial.println("off");
       timer.stop();
       motorStopp();
       int doorTime = messageTemp.substring(6).toInt();
-      if ((doorTime > 15*1000) && (DoorStatus != DoorClosed)) {
-        closeDoorTime = doorTime;
-        client.publish("huhnerstall/log", String("door closing full with " + String(doorTime) + "ms").c_str());
-        motorZu();
-        Serial.println(doorTime);
-        timer.setTimeout(doorTime);
-        timer.start();
-        DoorStatus = DoorClosed;  
-        closeDoorTimer.stop();
-        closeDoorTimer.setTimeout(autoDoorCycleTime);
-        closeDoorTimer.start();
-        client.publish("huhnerstall/log", String("set auto door closing in " + getFormattedTime(closeDoorTimer)).c_str());
-        return;
+      if (doorTime > 15*1000) {
+        if (DoorStatus != DoorClosed) {
+          closeDoorTime = doorTime;
+          client.publish("huhnerstall/log", String("door closing full with " + String(doorTime) + "ms").c_str());
+          motorZu();
+          Serial.println(doorTime);
+          timer.setTimeout(doorTime);
+          timer.start();
+          DoorStatus = DoorClosed;  
+          closeDoorTimer.stop();
+          closeDoorTimer.setTimeout(autoDoorCycleTime);
+          closeDoorTimer.start();
+          client.publish("huhnerstall/log", String("set auto door closing in " + getFormattedTime(closeDoorTimer) + "ms timer status " + GetTimerState(closeDoorTimer)).c_str());
+          return;
+        }
+          client.publish("huhnerstall/log", String("cmd to close door for " + String(doorTime) + "ms ignored, door is already closed").c_str());
+          return;
       }
-      else {
-        client.publish("huhnerstall/log", String("door closing normal with " + String(doorTime) + "ms").c_str());
-        motorZu();
-        Serial.println(doorTime);
-        timer.setTimeout(doorTime);
-        timer.start();
-        return;
-      }
+      client.publish("huhnerstall/log", String("door closing normal with " + String(doorTime) + "ms").c_str());
+      motorZu();
+      Serial.println(doorTime);
+      timer.setTimeout(doorTime);
+      timer.start();
+      return;
     } 
     else if (messageTemp.substring(0,9)== "resetdoor"){
       DoorStatus = DoorUndefined;
@@ -309,7 +314,8 @@ void loop() {
   openDoorTimer.update();
   closeDoorTimer.update();
   pingTimer.update();
-  ArduinoOTA.handle();
+  //ArduinoOTA.handle();
+  //BetterOTA.handle();
   server.handleClient();
 }
 
@@ -364,6 +370,24 @@ void handleRoot() {
   String openDoorTimeStr = getFormattedTime(openDoorTimer);
   String closeDoorTimeStr = getFormattedTime(closeDoorTimer);
   
-  String html = "<html><body><h1>Huhnertuer V1</h1><p>Door status: " + getDoorStatus(DoorStatus) + "</p><p>Open door time: " + String(openDoorTime) + "</p><p>Close door time: " + String(closeDoorTime) + "</p><p>Open door timer: " + openDoorTimeStr + "</p><p>Close door timer: " + closeDoorTimeStr + "</p></body></html>";
+  String html = "<html><body><h1>Huhnertuer V1</h1><p>Door status: " + getDoorStatus(DoorStatus) + "</p><p>Open door time: " 
+  + String(openDoorTime) + "</p><p>Close door time: " + String(closeDoorTime) + "</p><p>Open door timer: " 
+  + openDoorTimeStr + "</p><p>Close door timer: " + closeDoorTimeStr + "</p> "+
+  "<p> CloseDoorTimerStatus "+ GetTimerState(closeDoorTimer)+"</p>"+
+  "<p> OpenDoorTimerStatus "+ GetTimerState(openDoorTimer)+"</p>"+
+  "</body></html>";
   server.send(200, "text/html", html);
+}
+
+String GetTimerState(Timer& timer) {
+  if (timer.isRunning()) {
+    return "Running";
+  }
+  if (timer.isStopped()) {
+    return "Stopped";
+  }
+  if (timer.isPaused()) {
+    return "Paused";
+  }
+  return "Unknown";
 }
