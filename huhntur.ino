@@ -69,6 +69,8 @@ int openDoorTime = 20*1000;
 int closeDoorTime = 18*1000;
 int autoDoorCycleTime = (24*60*60 + 30*60)*1000;
 
+bool checkTimerActive = true;
+
 const int MAX_ALLOWED_TIME = 25*1000;
 
 String mqtt_server = MQTT_SERVER_IP;
@@ -158,7 +160,10 @@ void pingMQTT()
   String openDoorTimeStr = getFormattedTime(openDoorTimer);
   String closeDoorTimeStr = getFormattedTime(closeDoorTimer);
   String doorStatusText = getDoorStatus(DoorStatus);
-  String message = "id=1,doorstatus=" + doorStatusText + ",openDoorTime=" + openDoorTimeStr + ",closeDoorTime=" + closeDoorTimeStr + ",openDoorTimerState=" + GetTimerState(openDoorTimer) + ",closeDoorTimerState=" + GetTimerState(closeDoorTimer);
+  String message = "id=1,doorstatus=" + doorStatusText + ",openDoorTime=" + openDoorTimeStr + 
+  ",closeDoorTime=" + closeDoorTimeStr + ",openDoorTimerState=" + GetTimerState(openDoorTimer) + 
+  ",closeDoorTimerState=" + GetTimerState(closeDoorTimer)+
+  ",checkTimerActive=" + String(checkTimerActive);
   client.publish("huhnerstall/ping", message.c_str());
 }
 
@@ -208,6 +213,11 @@ void callback(char* topic, byte* message, unsigned int length) {
 
   if (String(topic).startsWith("huhnerstall/cmd") ) {
     Serial.print("Changing output to ");
+    if(messageTemp.substring(0,10) == "checktimer") {
+      checkTimerActive = !checkTimerActive;
+      client.publish("huhnerstall/log", String("checkTimerActive is now " + String(checkTimerActive)).c_str());
+      return;
+    }
     if(messageTemp.substring(0,7)== "tuerauf"){
       Serial.println("on");
       timer.stop();
@@ -314,9 +324,24 @@ void loop() {
   openDoorTimer.update();
   closeDoorTimer.update();
   pingTimer.update();
+  checkTimer();
   //ArduinoOTA.handle();
   //BetterOTA.handle();
   server.handleClient();
+}
+
+void checkTimer() {
+  if (!checkTimerActive) {
+    return;
+  }
+  if (openDoorTimer.isStopped()) {
+    openDoorTimer.start();
+    client.publish("huhnerstall/alert", String("emergency starting openDoorTimer").c_str());
+  }
+  if (closeDoorTimer.isStopped()) {
+    closeDoorTimer.start();
+    client.publish("huhnerstall/alert", String("emergency starting closeDoorTimer").c_str());
+  }
 }
 
 void openDoor() {
